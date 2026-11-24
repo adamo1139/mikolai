@@ -44,10 +44,15 @@ mikolai-ui --host 0.0.0.0       # dostęp z innych komputerów w sieci lokalnej
 | `cfg` | 4.0 | siła prowadzenia (classifier-free guidance); `1` wyłącza CFG i daje ok. 2× szybciej |
 | `kroki` | 16 | kroki całkowania przepływu; `8` szybciej, odrobinę gorzej |
 | `tempo` | 1.0 | > 1 szybciej, < 1 wolniej |
+| `max_znakow` | 350 | najdłuższy kawałek długiego tekstu (ok. 18 s mowy); dłuższe model czyta szybciej |
+| `przerwy` | `PRZERWY` | cisza po kawałku w s: `{"przecinek": 0.08, "zdanie": 0.18, "akapit": 0.28}` |
 | `partia` | 64 | ile kawałków długiego tekstu liczyć naraz (1–8192); więcej = szybciej na GPU, więcej pamięci |
 | `ziarno` | 0 | ten sam tekst i ziarno = ten sam dźwięk; `None` = za każdym razem inaczej |
 
-Długi tekst jest dzielony na zdania i czytany po kawałku (do ok. 250 znaków), z krótką przerwą między nimi.
+Długi tekst (np. rozdział książki) jest dzielony na kawałki do ok. 350 znaków: zdania są sklejane także przez
+granice akapitów (nowa linia), a zbyt długie zdanie jest cięte po przecinku. Każdy kawałek jest czytany osobno,
+cisza modelu na jego brzegach jest przycinana, a między kawałkami wstawiana jest przerwa zależna od miejsca
+(przecięte zdanie, koniec zdania, koniec akapitu), dobrana do naturalnych pauz modelu między zdaniami.
 
 ### Szybkość (orientacyjnie)
 

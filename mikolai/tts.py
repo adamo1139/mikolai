@@ -23,21 +23,77 @@ def _plik(repo: str, nazwa: str, revision: str | None) -> str:
     return hf_hub_download(repo, nazwa, revision=revision)
 
 
-def podziel_na_zdania(tekst: str, max_znakow: int = 250) -> list[str]:
-    """Zdania (po . ! ? …) sklejone w kawałki do `max_znakow`; model uczył się na wypowiedziach do ok. 30 s."""
-    zdania = [z.strip() for z in re.split(r"(?<=[.!?…])\s+", tekst.strip()) if z.strip()]
-    kawalki: list[str] = []
-    for z in zdania:
-        while len(z) > max_znakow:   # bardzo długie zdanie: tniemy po przecinku albo spacji
-            i = max(z.rfind(", ", 0, max_znakow), z.rfind(" ", 0, max_znakow))
-            i = i if i > 0 else max_znakow
-            kawalki.append(z[: i + 1].strip())
-            z = z[i + 1:].strip()
-        if kawalki and len(kawalki[-1]) + 1 + len(z) <= max_znakow and not kawalki[-1].endswith(("?", "!")):
-            kawalki[-1] = kawalki[-1] + " " + z
-        elif z:
-            kawalki.append(z)
-    return kawalki
+MAKS_ZNAKOW = 350   # do ok. 18 s mowy; dłuższe kawałki model czyta szybciej (przy ok. 550 znakach o ok. 8%)
+PRZERWY = {"przecinek": 0.08, "zdanie": 0.18, "akapit": 0.28}   # cisza wstawiana po kawałku (s), zależnie od końca;
+# razem z marginesem po przycięciu (2 × 0,03 s) daje ok. 0,14 / 0,24 / 0,34 s — tyle co pauzy modelu między zdaniami
+
+
+def podziel(tekst: str, max_znakow: int = MAKS_ZNAKOW) -> list[tuple[str, str]]:
+    """Tekst -> [(kawałek, koniec)]. Zdania (po . ! ? …) są sklejane w kawałki do `max_znakow`, także przez granice
+    akapitów (akapity rozdziela nowa linia; krótkie kwestie dialogu nie robią się osobnymi kawałkami). Koniec kawałka:
+    "akapit" (kończy się razem z akapitem), "zdanie" (na . ! ? …) albo "przecinek" (zbyt długie zdanie przecięte po
+    przecinku albo spacji). Do kawałka kończącego się na ? albo ! nic się nie dokleja."""
+    zdania: list[tuple[str, str]] = []
+    for akapit in (a.strip() for a in tekst.split("\n")):
+        czesci = [z.strip() for z in re.split(r"(?<=[.!?…])\s+", akapit) if z.strip()]
+        for n, z in enumerate(czesci):
+            while len(z) > max_znakow:   # bardzo długie zdanie: najlepiej po przecinku w drugiej połowie, inaczej po spacji
+                i = z.rfind(", ", max_znakow // 2, max_znakow)
+                i = i + 1 if i > 0 else z.rfind(" ", 0, max_znakow)
+                i = i if i > 0 else max_znakow
+                zdania.append((z[:i].strip(), "przecinek"))
+                z = z[i:].strip()
+            if z:
+                if n == len(czesci) - 1 and not re.search(r"[.!?…,;:]\W*$", z):
+                    z += "."   # akapit bez kropki (np. „Następny dzień”): bez niej zlałby się z następnym zdaniem
+                zdania.append((z, "akapit" if n == len(czesci) - 1 else "zdanie"))
+    out: list[tuple[str, str]] = []
+    for z, k in zdania:
+        if out and out[-1][1] != "przecinek" and len(out[-1][0]) + 1 + len(z) <= max_znakow \
+                and not out[-1][0].endswith(("?", "!")):
+            out[-1] = (out[-1][0] + " " + z, k)
+        else:
+            out.append((z, k))
+    return out
+
+
+def podziel_na_zdania(tekst: str, max_znakow: int = MAKS_ZNAKOW) -> list[str]:
+    """Same kawałki tekstu (bez rodzaju końca), patrz podziel()."""
+    return [k for k, _ in podziel(tekst, max_znakow)]
+
+
+def _przytnij(w: torch.Tensor, sr: int, prog_db: float = -45.0, margines: float = 0.03, zanik: float = 0.01) -> torch.Tensor:
+    """Cisza modelu z początku i końca kawałka (ramki 10 ms ciszej niż `prog_db` względem najgłośniejszej ramki),
+    z marginesem `margines` s i wygaszeniem `zanik` s na brzegach (bez trzasków)."""
+    r = sr // 100
+    n = w.shape[0] // r
+    if n < 3:
+        return w
+    e = w[: n * r].reshape(n, r).pow(2).mean(1).add(1e-12).log10().mul(10)
+    glos = (e > e.max() + prog_db).nonzero()
+    if len(glos) == 0:
+        return w
+    a = max(0, int(glos[0]) * r - int(margines * sr))
+    b = min(w.shape[0], (int(glos[-1]) + 1) * r + int(margines * sr))
+    w = w[a:b].clone()
+    z = min(int(zanik * sr), w.shape[0] // 4)
+    if z > 0:
+        rampa = torch.linspace(0, 1, z, device=w.device)
+        w[:z] *= rampa
+        w[-z:] *= rampa.flip(0)
+    return w
+
+
+def sklej(nagrania: list[torch.Tensor], konce: list[str], sr: int, przerwy: dict | None = None) -> torch.Tensor:
+    """Kawałki -> jedno nagranie: cisza modelu z brzegów przycięta, przerwa zależna od końca kawałka (PRZERWY)."""
+    przerwy = {**PRZERWY, **(przerwy or {})}
+    nagrania = [_przytnij(w, sr) for w in nagrania]
+    czesci = []
+    for i, (w, k) in enumerate(zip(nagrania, konce)):
+        czesci.append(w)
+        if i < len(nagrania) - 1:
+            czesci.append(torch.zeros(int(przerwy[k] * sr), device=w.device))
+    return torch.cat(czesci) if czesci else torch.zeros(0)
 
 
 class MikolAI:
@@ -195,12 +251,15 @@ class MikolAI:
         return out
 
     def synteza(self, tekst: str, glos: str = "poziomka", cfg: float = 4.0, kroki: int = 16, tempo: float = 1.0,
-                ziarno: int | None = 0, przerwa: float = 0.25, partia: int = 64) -> np.ndarray:
+                ziarno: int | None = 0, partia: int = 64, max_znakow: int = MAKS_ZNAKOW,
+                przerwy: dict | None = None) -> np.ndarray:
         """Tekst -> dźwięk 48 kHz, float32 w [-1, 1]. Długi tekst jest dzielony na zdania.
 
         cfg: siła prowadzenia (1 = bez CFG, dwa razy szybciej); kroki: kroki całkowania (16 domyślnie, 8 szybciej);
-        tempo: > 1 szybciej; ziarno: powtarzalny wynik (None = losowo); przerwa: cisza między kawałkami w sekundach;
-        partia: ile kawałków liczyć naraz (1–8192, domyślnie 64; mniej, jeśli tekst ma mniej kawałków; 1 = po kolei).
+        tempo: > 1 szybciej; ziarno: powtarzalny wynik (None = losowo);
+        przerwy: cisza po kawałku w s, np. {"przecinek": 0.08, "zdanie": 0.18, "akapit": 0.28} (domyślnie PRZERWY);
+        partia: ile kawałków liczyć naraz (1–8192, domyślnie 64; mniej, jeśli tekst ma mniej kawałków; 1 = po kolei);
+        max_znakow: najdłuższy kawałek tekstu (zdania są sklejane do tej długości; model uczył się na wypowiedziach do ok. 30 s).
         Kawałki są liczone w kolejności od najkrótszego (mniej dopełniania), a sklejane w kolejności tekstu."""
         if glos not in self.glosy:
             raise ValueError(f"nieznany głos {glos!r}; dostępne: {', '.join(self.glosy)}")
@@ -212,7 +271,8 @@ class MikolAI:
             gen.manual_seed(ziarno)
         else:
             gen.seed()
-        kawalki = podziel_na_zdania(tekst)
+        podzial = podziel(tekst, max_znakow=max_znakow)
+        kawalki = [k for k, _ in podzial]
         if not kawalki:
             return np.zeros(0, dtype=np.float32)
         el = self._przygotuj(kawalki, glos, tempo, gen)
@@ -222,13 +282,8 @@ class MikolAI:
             grupa = kolejnosc[i : i + partia]
             for k, w in zip(grupa, self._dekoduj(self._plyn([el[k] for k in grupa], glos, cfg, kroki))):
                 nagrania[k] = w
-        cisza = torch.zeros(int(przerwa * self.sample_rate), device=self.device)
-        czesci = []
-        for i, w in enumerate(nagrania):
-            if i:
-                czesci.append(cisza)
-            czesci.append(w)
-        return torch.cat(czesci).clamp(-1, 1).float().cpu().numpy()
+        audio = sklej(nagrania, [k for _, k in podzial], self.sample_rate, przerwy)
+        return audio.clamp(-1, 1).float().cpu().numpy()
 
     def zapisz(self, tekst: str, sciezka: str, **kw) -> str:
         """synteza() i zapis do pliku (WAV/FLAC, 48 kHz)."""

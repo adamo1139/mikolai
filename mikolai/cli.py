@@ -18,6 +18,7 @@ def main() -> None:
     p.add_argument("--tempo", type=float, default=1.0, help="> 1 szybciej, < 1 wolniej")
     p.add_argument("--ziarno", type=int, default=0, help="ziarno losowania (-1 = losowo)")
     p.add_argument("--partia", type=int, default=64, help="ile kawałków tekstu liczyć naraz (1–8192)")
+    p.add_argument("--max_znakow", type=int, default=350, help="najdłuższy kawałek tekstu (domyślnie 350)")
     p.add_argument("--device", default=None, help="cpu / cuda (domyślnie cuda, jeśli jest)")
     p.add_argument("--watki", type=int, default=None, help="liczba wątków CPU")
     a = p.parse_args()
@@ -32,7 +33,7 @@ def main() -> None:
     tts = MikolAI.from_pretrained(a.repo or DOMYSLNE_REPO, device=a.device)
     t0 = time.time()
     tts.zapisz(tekst, a.wyjscie, cfg=a.cfg, kroki=a.kroki, tempo=a.tempo,
-               ziarno=None if a.ziarno < 0 else a.ziarno, partia=a.partia)
+               ziarno=None if a.ziarno < 0 else a.ziarno, partia=a.partia, max_znakow=a.max_znakow)
     import soundfile as sf
     dl = sf.info(a.wyjscie).duration
     print(f"{a.wyjscie}: {dl:.1f} s audio w {time.time() - t0:.1f} s (RTF {(time.time() - t0) / max(dl, 1e-6):.2f})")
