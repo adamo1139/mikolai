@@ -12,7 +12,7 @@ import torch
 from .budowa import zbuduj
 from .slownik import normalize_text, text_to_indices, wrap_lang_tags
 
-DOMYSLNE_REPO = "cpral/MikolAI-109M-1-Polski-TTS"
+DOMYSLNE_REPO = "cpral/MikolAI-109M-v0.1-Polish-TTS-Preview"
 MAKS_PARTIA = 8192
 
 
@@ -94,6 +94,24 @@ def sklej(nagrania: list[torch.Tensor], konce: list[str], sr: int, przerwy: dict
         if i < len(nagrania) - 1:
             czesci.append(torch.zeros(int(przerwy[k] * sr), device=w.device))
     return torch.cat(czesci) if czesci else torch.zeros(0)
+
+
+def zapisz_audio(audio: np.ndarray, sciezka: str, sr: int = 48000, kbps: int = 64) -> str:
+    """Zapis nagrania: .ogg / .opus jako Opus `kbps` kbit/s (6–256; domyślnie 64), .wav / .flac bez strat. Bez
+    rozszerzenia dopisywane jest .ogg. Zwraca ścieżkę zapisanego pliku."""
+    import soundfile as sf
+    rozsz = os.path.splitext(sciezka)[1].lower()
+    if not rozsz:
+        sciezka, rozsz = sciezka + ".ogg", ".ogg"
+    if rozsz in (".opus", ".ogg"):
+        if sr not in (8000, 12000, 16000, 24000, 48000):
+            raise ValueError(f"Opus nie obsługuje {sr} Hz")
+        # libsndfile: compression_level 0..1 to liniowo ok. 256..6 kbit/s
+        poziom = min(1.0, max(0.0, (256 - float(kbps)) / 250))
+        sf.write(sciezka, audio, sr, format="OGG", subtype="OPUS", compression_level=poziom)
+    else:
+        sf.write(sciezka, audio, sr)
+    return sciezka
 
 
 class MikolAI:
@@ -285,8 +303,7 @@ class MikolAI:
         audio = sklej(nagrania, [k for _, k in podzial], self.sample_rate, przerwy)
         return audio.clamp(-1, 1).float().cpu().numpy()
 
-    def zapisz(self, tekst: str, sciezka: str, **kw) -> str:
-        """synteza() i zapis do pliku (WAV/FLAC, 48 kHz)."""
-        import soundfile as sf
-        sf.write(sciezka, self.synteza(tekst, **kw), self.sample_rate)
-        return sciezka
+    def zapisz(self, tekst: str, sciezka: str, kbps: int = 64, **kw) -> str:
+        """synteza() i zapis do pliku. Format z rozszerzenia: .ogg (Opus, domyślny, także bez rozszerzenia; `kbps`
+        kbit/s, przy 64 ok. 12× mniej niż WAV), .opus (to samo), .wav albo .flac (bez strat). Zwraca ścieżkę pliku."""
+        return zapisz_audio(self.synteza(tekst, **kw), sciezka, self.sample_rate, kbps)

@@ -1,7 +1,7 @@
 # mikolai
 
 Biblioteka do syntezy mowy modelem **MikołAI** — mały (ok. 109M parametrów) polski TTS, 48 kHz, jeden
-syntetyczny głos („poziomka”). Wagi: [cpral/MikolAI-109M-1-Polski-TTS](https://huggingface.co/cpral/MikolAI-109M-1-Polski-TTS).
+syntetyczny głos („poziomka”). Wagi: [cpral/MikolAI-109M-v0.1-Polish-TTS-Preview](https://huggingface.co/cpral/MikolAI-109M-v0.1-Polish-TTS-Preview).
 Kod treningowy: [adamo1139/syntezujemy_polska_mowe](https://github.com/adamo1139/syntezujemy_polska_mowe).
 
 ## Instalacja
@@ -19,14 +19,16 @@ from mikolai import MikolAI
 
 tts = MikolAI.from_pretrained()                 # pobiera wagi z HF (ok. 440 MB), GPU jeśli jest
 audio = tts.synteza("Dzień Dobry, umawiała się Pani na strzyżenie włosów u nas na jutro, czy Pani wizyta jest aktualna?")  # numpy float32, 48 kHz
-tts.zapisz("Miło mi cię poznać.", "powitanie.wav")
+tts.zapisz("Miło mi cię poznać.", "powitanie.ogg")
+tts.zapisz("Dłuższy tekst do odsłuchu.", "tekst.ogg", kbps=48)   # Opus: ok. 12× mniejszy niż WAV
 ```
 
 Z wiersza poleceń:
 
 ```bash
-mikolai "Dzień Dobry, umawiała się Pani na strzyżenie włosów u nas na jutro, czy Pani wizyta jest aktualna?" -o wizyta.wav
-mikolai --plik artykul.txt -o artykul.wav --device cpu --watki 8
+mikolai "Dzień Dobry, umawiała się Pani na strzyżenie włosów u nas na jutro, czy Pani wizyta jest aktualna?" -o wizyta.ogg
+mikolai --plik artykul.txt -o artykul.ogg --device cpu --watki 8
+mikolai --plik ksiazka.txt -o ksiazka.ogg --kbps 48  # Opus (domyślnie 64 kbit/s); bez strat: -o ksiazka.flac
 ```
 
 ### Interfejs w przeglądarce
