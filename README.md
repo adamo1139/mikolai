@@ -44,6 +44,7 @@ mikolai-ui --host 0.0.0.0       # dostęp z innych komputerów w sieci lokalnej
 | `cfg` | 4.0 | siła prowadzenia (classifier-free guidance); `1` wyłącza CFG i daje ok. 2× szybciej |
 | `kroki` | 16 | kroki całkowania przepływu; `8` szybciej, odrobinę gorzej |
 | `tempo` | 1.0 | > 1 szybciej, < 1 wolniej |
+| `partia` | 64 | ile kawałków długiego tekstu liczyć naraz (1–8192); więcej = szybciej na GPU, więcej pamięci |
 | `ziarno` | 0 | ten sam tekst i ziarno = ten sam dźwięk; `None` = za każdym razem inaczej |
 
 Długi tekst jest dzielony na zdania i czytany po kawałku (do ok. 250 znaków), z krótką przerwą między nimi.

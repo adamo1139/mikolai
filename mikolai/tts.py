@@ -13,6 +13,7 @@ from .budowa import zbuduj
 from .slownik import normalize_text, text_to_indices, wrap_lang_tags
 
 DOMYSLNE_REPO = "cpral/MikolAI-109M-1-Polski-TTS"
+MAKS_PARTIA = 8192
 
 
 def _plik(repo: str, nazwa: str, revision: str | None) -> str:
@@ -81,57 +82,152 @@ class MikolAI:
         return torch.tensor(ids, dtype=torch.long, device=self.device).unsqueeze(0)
 
     @torch.no_grad()
-    def _jedno(self, tekst: str, glos: str, cfg_scale: float, kroki: int, tempo: float, gen) -> torch.Tensor:
-        g = self.glosy[glos]
-        styl, styl_dp = g["styl"], g["styl_dp"]
-        ids = self._ids(tekst)
-        maska_t = torch.ones(1, 1, ids.shape[1], device=self.device)
-        # długość wypowiedzi (s) -> liczba klatek latentu (porcje hop × ccf próbek)
-        sek = torch.exp(self.dp(ids, text_mask=maska_t, style_dp=styl_dp, return_log=True)) / tempo
+    def _przygotuj(self, kawalki: list[str], glos: str, tempo: float, gen) -> list[dict]:
+        """Dla każdego kawałka po kolei: znaki, długość z predyktora (0,35M, osobno na kawałek — w partii z dopełnieniem
+        jego wynik różni się o kilka ms, co potrafi przestawić zaokrąglenie o klatkę), maska i szum startowy.
+        Szum losowany w kolejności tekstu, więc wynik nie zależy od rozmiaru partii ani od kolejności liczenia."""
+        styl_dp = self.glosy[glos]["styl_dp"]
         porcja = self.hop * self.ccf
-        T = int((sek.max() * self.sample_rate + porcja - 1) // porcja)
-        dl = int((sek[0] * self.sample_rate).long())
-        maska = (torch.arange(T, device=self.device) < (dl + porcja - 1) // porcja).float().view(1, 1, T)
-        x = torch.randn(1, self.latent_dim * self.ccf, T, device=self.device, generator=gen) * maska
+        C = self.latent_dim * self.ccf
+        out = []
+        for t in kawalki:
+            ids = self._ids(t)[0]
+            sek = torch.exp(self.dp(ids[None], text_mask=torch.ones(1, 1, len(ids), device=self.device),
+                                    style_dp=styl_dp, return_log=True)).reshape(()) / tempo
+            T = int((sek.item() * self.sample_rate + porcja - 1) // porcja)
+            n = min(T, (int((sek * self.sample_rate).long()) + porcja - 1) // porcja)
+            out.append({"ids": ids, "T": T, "n": n, "szum": torch.randn(1, C, T, device=self.device, generator=gen)[0]})
+        return out
+
+    @torch.no_grad()
+    def _plyn(self, el: list[dict], glos: str, cfg_scale: float, kroki: int) -> list[torch.Tensor]:
+        """Całkowanie przepływu dla partii kawałków (tekst i latenty dopełnione do najdłuższego, maski jak w treningu).
+        Zwraca latenty dekodera [1, latent_dim, T · ccf] każdego kawałka (już odnormowane i rozpakowane)."""
+        g = self.glosy[glos]
+        B = len(el)
+        styl = g["styl"].expand(B, -1, -1)
+        Lt, T = max(len(e["ids"]) for e in el), max(e["T"] for e in el)
+        ids = torch.zeros(B, Lt, dtype=torch.long, device=self.device)
+        maska_t = torch.zeros(B, 1, Lt, device=self.device)
+        maska = torch.zeros(B, 1, T, device=self.device)
+        x = torch.zeros(B, self.latent_dim * self.ccf, T, device=self.device)
+        for b, e in enumerate(el):
+            ids[b, : len(e["ids"])] = e["ids"]
+            maska_t[b, 0, : len(e["ids"])] = 1
+            maska[b, 0, : e["n"]] = 1
+            x[b, :, : e["T"]] = e["szum"]
+        x = x * maska
         h = self.te(ids, styl, text_mask=maska_t)
         u = self.uncond
         u_key = getattr(u, "u_key", None)
         for i in range(kroki):
-            t = torch.full((1,), i / kroki, device=self.device)
+            t = torch.full((B,), i / kroki, device=self.device)
             xi = x * maska
             v = self.vf(noisy_latent=xi, text_emb=h, style_ttl=styl, latent_mask=maska, text_mask=maska_t, current_step=t)
             if cfg_scale > 1.0:
-                v0 = self.vf(noisy_latent=xi, text_emb=u.u_text.expand(1, -1, h.shape[2]), style_ttl=u.u_ref,
+                v0 = self.vf(noisy_latent=xi, text_emb=u.u_text.expand(B, -1, h.shape[2]), style_ttl=u.u_ref.expand(B, -1, -1),
                              latent_mask=maska, text_mask=maska_t, current_step=t,
-                             style_keys=u_key if u_key is not None else None)
+                             style_keys=u_key.expand(B, -1, -1) if u_key is not None else None)
                 v = v0 + cfg_scale * (v - v0)
             x = (x + v * maska / kroki) * maska
         z = (x / self.scale if self.scale not in (0.0, 1.0) else x) * self.std + self.mean
-        z = z.view(1, self.latent_dim, self.ccf, T).permute(0, 1, 3, 2).flatten(2, 3)   # rozpakowanie ×ccf
-        wav = self.dekoder(z).reshape(-1)
-        return wav[porcja:-porcja]   # jak w próbkach treningu: bez pierwszej i ostatniej porcji
+        return [z[b : b + 1, :, : e["T"]].reshape(1, self.latent_dim, self.ccf, e["T"]).permute(0, 1, 3, 2).flatten(2, 3)
+                for b, e in enumerate(el)]
+
+    @torch.no_grad()
+    def _dekoduj(self, zs: list[torch.Tensor]) -> list[torch.Tensor]:
+        """Dekoder dla partii, z tym samym wynikiem co osobno na każdy kawałek.
+
+        Ciało dekodera, przednia sieć i głowica „patch” są przyczynowe (albo działają na klatkę), więc dopełnienie
+        z prawej nie zmienia niczego przed końcem kawałka. Moduł poprawki widma patrzy w obie strony: STFT i odwrotne
+        STFT liczone są na każdy kawałek osobno (własne odbicie na końcu sygnału), a po każdej warstwie ramki za
+        końcem kawałka są zerowane — tak jak dopełnienie zerami w pojedynczym przebiegu."""
+        from .modele.latent_decoder import VocoderHead
+        dek = self.dekoder
+        porcja = self.hop * self.ccf
+        if not isinstance(dek.head, VocoderHead):   # inna głowica (np. istft) nie jest przyczynowa: po kolei
+            return [dek(z).reshape(-1)[porcja:-porcja] for z in zs]
+        B, L = len(zs), max(z.shape[-1] for z in zs)
+        x = torch.zeros(B, zs[0].shape[1], L, device=self.device)
+        for b, z in enumerate(zs):
+            x[b, :, : z.shape[-1]] = z[0]
+        x = x * dek.latent_std + dek.latent_mean
+        if dek.prenet is not None:
+            x = dek.prenet(x)
+        x = dek.embed(x)
+        for blok in dek.convnext:
+            x = blok(x)
+        x = dek.final_norm(x)
+        wav = dek.head(x)                                        # [B, L · hop]
+        dl = [z.shape[-1] * self.hop for z in zs]
+        if dek.postnet is None:
+            return [wav[b, : dl[b]][porcja:-porcja] for b in range(B)]
+        pn = dek.postnet
+        X, wejscia, F_ = [], [], []
+        for b in range(B):
+            Xb = torch.stft(wav[b : b + 1, : dl[b]].float(), pn.n_fft, pn.hop, window=pn.window, center=True,
+                            return_complex=True)
+            mag = Xb.abs()
+            komp = mag.clamp_min(1e-8) ** 0.3 * Xb / mag.clamp_min(1e-8)
+            Fb = Xb.shape[-1]
+            f = x[b : b + 1, :, : zs[b].shape[-1]].float()
+            if f.shape[-1] < Fb:
+                f = torch.cat([f, f[..., -1:].expand(-1, -1, Fb - f.shape[-1])], dim=-1)
+            X.append(Xb); F_.append(Fb)
+            wejscia.append(torch.cat([komp.real, komp.imag, f[..., :Fb]], dim=1))
+        Fm = max(F_)
+        H = torch.zeros(B, wejscia[0].shape[1], Fm, device=self.device)
+        maska = torch.zeros(B, 1, Fm, device=self.device)
+        for b in range(B):
+            H[b, :, : F_[b]] = wejscia[b][0]
+            maska[b, 0, : F_[b]] = 1
+        h = pn.proj_in(H) * maska
+        for blok in pn.blocks:
+            h = blok(h) * maska
+        a, b_ = pn.proj_out(h).chunk(2, dim=1)
+        out = []
+        for b in range(B):
+            m = torch.complex(1.0 + a[b : b + 1, :, : F_[b]], b_[b : b + 1, :, : F_[b]])
+            modul = m.abs()
+            m = m * (modul.clamp(max=pn.max_mask) / modul.clamp_min(1e-8))
+            y = torch.istft(X[b] * m, pn.n_fft, pn.hop, window=pn.window, center=True, length=dl[b])
+            out.append(y.reshape(-1)[porcja:-porcja])
+        return out
 
     def synteza(self, tekst: str, glos: str = "poziomka", cfg: float = 4.0, kroki: int = 16, tempo: float = 1.0,
-                ziarno: int | None = 0, przerwa: float = 0.25) -> np.ndarray:
+                ziarno: int | None = 0, przerwa: float = 0.25, partia: int = 64) -> np.ndarray:
         """Tekst -> dźwięk 48 kHz, float32 w [-1, 1]. Długi tekst jest dzielony na zdania.
 
         cfg: siła prowadzenia (1 = bez CFG, dwa razy szybciej); kroki: kroki całkowania (16 domyślnie, 8 szybciej);
-        tempo: > 1 szybciej; ziarno: powtarzalny wynik (None = losowo); przerwa: cisza między kawałkami w sekundach."""
+        tempo: > 1 szybciej; ziarno: powtarzalny wynik (None = losowo); przerwa: cisza między kawałkami w sekundach;
+        partia: ile kawałków liczyć naraz (1–8192, domyślnie 64; mniej, jeśli tekst ma mniej kawałków; 1 = po kolei).
+        Kawałki są liczone w kolejności od najkrótszego (mniej dopełniania), a sklejane w kolejności tekstu."""
         if glos not in self.glosy:
             raise ValueError(f"nieznany głos {glos!r}; dostępne: {', '.join(self.glosy)}")
+        if not 1 <= int(partia) <= MAKS_PARTIA:
+            raise ValueError(f"partia musi być od 1 do {MAKS_PARTIA}, jest {partia}")
+        partia = int(partia)
         gen = torch.Generator(device=self.device)
         if ziarno is not None:
             gen.manual_seed(ziarno)
         else:
             gen.seed()
+        kawalki = podziel_na_zdania(tekst)
+        if not kawalki:
+            return np.zeros(0, dtype=np.float32)
+        el = self._przygotuj(kawalki, glos, tempo, gen)
+        kolejnosc = sorted(range(len(el)), key=lambda i: el[i]["T"])
+        nagrania: list[torch.Tensor | None] = [None] * len(el)
+        for i in range(0, len(kolejnosc), partia):
+            grupa = kolejnosc[i : i + partia]
+            for k, w in zip(grupa, self._dekoduj(self._plyn([el[k] for k in grupa], glos, cfg, kroki))):
+                nagrania[k] = w
         cisza = torch.zeros(int(przerwa * self.sample_rate), device=self.device)
         czesci = []
-        for i, kawalek in enumerate(podziel_na_zdania(tekst)):
+        for i, w in enumerate(nagrania):
             if i:
                 czesci.append(cisza)
-            czesci.append(self._jedno(kawalek, glos, cfg, kroki, tempo, gen))
-        if not czesci:
-            return np.zeros(0, dtype=np.float32)
+            czesci.append(w)
         return torch.cat(czesci).clamp(-1, 1).float().cpu().numpy()
 
     def zapisz(self, tekst: str, sciezka: str, **kw) -> str:

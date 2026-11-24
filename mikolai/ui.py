@@ -18,13 +18,13 @@ PRZYKLADY = [
 def zbuduj_ui(tts):
     import gradio as gr
 
-    def mow(tekst, cfg, kroki, tempo, ziarno, losowo):
+    def mow(tekst, cfg, kroki, tempo, ziarno, losowo, partia):
         tekst = (tekst or "").strip()
         if not tekst:
             raise gr.Error("Wpisz tekst.")
         t0 = time.time()
         audio = tts.synteza(tekst, cfg=float(cfg), kroki=int(kroki), tempo=float(tempo),
-                            ziarno=None if losowo else int(ziarno))
+                            ziarno=None if losowo else int(ziarno), partia=int(partia))
         dl = len(audio) / tts.sample_rate
         dt = time.time() - t0
         # 1 s ciszy na końcu: odtwarzacz w przeglądarce potrafi uciąć ostatnie dziesiątki ms nagrania
@@ -42,13 +42,14 @@ def zbuduj_ui(tts):
                 cfg = gr.Slider(1.0, 6.0, value=4.0, step=0.5, label="CFG (1 = bez prowadzenia, 2× szybciej)")
                 kroki = gr.Slider(2, 32, value=16, step=1, label="Kroki")
                 tempo = gr.Slider(0.6, 1.6, value=1.0, step=0.05, label="Tempo")
+                partia = gr.Number(value=64, precision=0, minimum=1, maximum=8192, label="Partia (kawałków naraz, 1–8192)")
                 with gr.Row():
                     ziarno = gr.Number(value=0, precision=0, label="Ziarno")
                     losowo = gr.Checkbox(value=False, label="Losowo")
         wyjscie = gr.Audio(label="Nagranie (48 kHz)", type="numpy")
         info = gr.Markdown()
-        przycisk.click(mow, [tekst, cfg, kroki, tempo, ziarno, losowo], [wyjscie, info])
-        tekst.submit(mow, [tekst, cfg, kroki, tempo, ziarno, losowo], [wyjscie, info])
+        przycisk.click(mow, [tekst, cfg, kroki, tempo, ziarno, losowo, partia], [wyjscie, info])
+        tekst.submit(mow, [tekst, cfg, kroki, tempo, ziarno, losowo, partia], [wyjscie, info])
     return demo
 
 
