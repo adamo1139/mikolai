@@ -29,6 +29,14 @@ mikolai "Dzień Dobry, umawiała się Pani na strzyżenie włosów u nas na jutr
 mikolai --plik artykul.txt -o artykul.wav --device cpu --watki 8
 ```
 
+### Interfejs w przeglądarce
+
+```bash
+pip install "mikolai[ui] @ git+https://github.com/adamo1139/mikolai"
+mikolai-ui                      # http://127.0.0.1:7860
+mikolai-ui --host 0.0.0.0       # dostęp z innych komputerów w sieci lokalnej
+```
+
 ### Ustawienia
 
 | argument | domyślnie | znaczenie |

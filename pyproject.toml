@@ -17,8 +17,12 @@ dependencies = [
     "huggingface_hub",
 ]
 
+[project.optional-dependencies]
+ui = ["gradio>=4"]
+
 [project.scripts]
 mikolai = "mikolai.cli:main"
+mikolai-ui = "mikolai.ui:main"
 
 [tool.setuptools.packages.find]
 include = ["mikolai*"]
