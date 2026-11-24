@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mikolai"
+version = "0.1.0"
+description = "MikołAI: mały polski TTS (48 kHz, jeden głos), inferencja w PyTorch"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = [
+    "torch>=2.4",
+    "numpy",
+    "soundfile",
+    "safetensors",
+    "huggingface_hub",
+]
+
+[project.optional-dependencies]
+liczby = ["morfeusz2"]
+
+[project.scripts]
+mikolai = "mikolai.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["mikolai*"]
