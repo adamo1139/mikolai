@@ -1,4 +1,4 @@
-"""MikołAI — mały polski TTS (48 kHz, jeden głos). Wagi: huggingface.co/cpral/MikolAI-113M-1-Polski-TTS.
+"""MikołAI — mały polski TTS (48 kHz, jeden głos). Wagi: huggingface.co/cpral/MikolAI-109M-1-Polski-TTS.
 
     from mikolai import MikolAI
     tts = MikolAI.from_pretrained()

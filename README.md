@@ -1,7 +1,7 @@
 # mikolai
 
-Biblioteka do syntezy mowy modelem **MikołAI** — mały (ok. 113M parametrów) polski TTS, 48 kHz, jeden
-syntetyczny głos („poziomka”). Wagi: [cpral/MikolAI-113M-1-Polski-TTS](https://huggingface.co/cpral/MikolAI-113M-1-Polski-TTS).
+Biblioteka do syntezy mowy modelem **MikołAI** — mały (ok. 109M parametrów) polski TTS, 48 kHz, jeden
+syntetyczny głos („poziomka”). Wagi: [cpral/MikolAI-109M-1-Polski-TTS](https://huggingface.co/cpral/MikolAI-109M-1-Polski-TTS).
 Kod treningowy: [adamo1139/syntezujemy_polska_mowe](https://github.com/adamo1139/syntezujemy_polska_mowe).
 
 ## Instalacja

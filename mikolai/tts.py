@@ -12,7 +12,7 @@ import torch
 from .budowa import zbuduj
 from .slownik import normalize_text, text_to_indices, wrap_lang_tags
 
-DOMYSLNE_REPO = "cpral/MikolAI-113M-1-Polski-TTS"
+DOMYSLNE_REPO = "cpral/MikolAI-109M-1-Polski-TTS"
 
 
 def _plik(repo: str, nazwa: str, revision: str | None) -> str:
