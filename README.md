@@ -40,9 +40,7 @@ mikolai --plik artykul.txt -o artykul.wav --liczby --device cpu --watki 8
 | `ziarno` | 0 | ten sam tekst i ziarno = ten sam dźwięk; `None` = za każdym razem inaczej |
 | `liczby` | False | liczby, daty, godziny, kwoty i jednostki na słowa z odmianą (wymaga `mikolai[liczby]`) |
 
-Model najlepiej czyta liczby zapisane słownie — z cyframi radzi sobie, ale gorzej (dane z cyframi pochodziły
-od nauczyciela, który sam je często przekręcał). Długi tekst jest dzielony na zdania i czytany po kawałku
-(do ok. 250 znaków), z krótką przerwą między nimi.
+Długi tekst jest dzielony na zdania i czytany po kawałku (do ok. 250 znaków), z krótką przerwą między nimi.
 
 ### Szybkość (orientacyjnie)
 
