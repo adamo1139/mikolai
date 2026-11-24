@@ -18,14 +18,14 @@ PyTorch najlepiej zainstalować wcześniej w wersji pasującej do sprzętu (CPU 
 from mikolai import MikolAI
 
 tts = MikolAI.from_pretrained()                 # pobiera wagi z HF (ok. 440 MB), GPU jeśli jest
-audio = tts.synteza("Dzień dobry, tu MikołAI.")  # numpy float32, 48 kHz
+audio = tts.synteza("Dzień Dobry, umawiała się Pani na strzyżenie włosów u nas na jutro, czy Pani wizyta jest aktualna?")  # numpy float32, 48 kHz
 tts.zapisz("Miło mi cię poznać.", "powitanie.wav")
 ```
 
 Z wiersza poleceń:
 
 ```bash
-mikolai "Dzień dobry, tu MikołAI." -o dzien_dobry.wav
+mikolai "Dzień Dobry, umawiała się Pani na strzyżenie włosów u nas na jutro, czy Pani wizyta jest aktualna?" -o wizyta.wav
 mikolai --plik artykul.txt -o artykul.wav --device cpu --watki 8
 ```
 

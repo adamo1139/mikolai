@@ -2,7 +2,7 @@
 
     from mikolai import MikolAI
     tts = MikolAI.from_pretrained()
-    tts.zapisz("Dzień dobry, tu MikołAI.", "dzien_dobry.wav")
+    tts.zapisz("Dzień Dobry, umawiała się Pani na strzyżenie włosów u nas na jutro, czy Pani wizyta jest aktualna?", "wizyta.wav")
 """
 
 from .tts import DOMYSLNE_REPO, MikolAI, podziel_na_zdania
