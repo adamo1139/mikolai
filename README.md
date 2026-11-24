@@ -7,8 +7,7 @@ Kod treningowy: [adamo1139/syntezujemy_polska_mowe](https://github.com/adamo1139
 ## Instalacja
 
 ```bash
-pip install "git+https://github.com/adamo1139/mikolai"            # sam TTS
-pip install "mikolai[liczby] @ git+https://github.com/adamo1139/mikolai"   # + liczby na słowa (Morfeusz 2)
+pip install "git+https://github.com/adamo1139/mikolai"
 ```
 
 PyTorch najlepiej zainstalować wcześniej w wersji pasującej do sprzętu (CPU albo CUDA).
@@ -20,14 +19,14 @@ from mikolai import MikolAI
 
 tts = MikolAI.from_pretrained()                 # pobiera wagi z HF (ok. 440 MB), GPU jeśli jest
 audio = tts.synteza("Dzień dobry, tu MikołAI.")  # numpy float32, 48 kHz
-tts.zapisz("Spotkanie jest 15 września o 9:30.", "spotkanie.wav", liczby=True)
+tts.zapisz("Miło mi cię poznać.", "powitanie.wav")
 ```
 
 Z wiersza poleceń:
 
 ```bash
 mikolai "Dzień dobry, tu MikołAI." -o dzien_dobry.wav
-mikolai --plik artykul.txt -o artykul.wav --liczby --device cpu --watki 8
+mikolai --plik artykul.txt -o artykul.wav --device cpu --watki 8
 ```
 
 ### Ustawienia
@@ -38,7 +37,6 @@ mikolai --plik artykul.txt -o artykul.wav --liczby --device cpu --watki 8
 | `kroki` | 16 | kroki całkowania przepływu; `8` szybciej, odrobinę gorzej |
 | `tempo` | 1.0 | > 1 szybciej, < 1 wolniej |
 | `ziarno` | 0 | ten sam tekst i ziarno = ten sam dźwięk; `None` = za każdym razem inaczej |
-| `liczby` | False | liczby, daty, godziny, kwoty i jednostki na słowa z odmianą (wymaga `mikolai[liczby]`) |
 
 Długi tekst jest dzielony na zdania i czytany po kawałku (do ok. 250 znaków), z krótką przerwą między nimi.
 

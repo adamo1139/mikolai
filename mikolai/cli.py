@@ -17,7 +17,6 @@ def main() -> None:
     p.add_argument("--kroki", type=int, default=16, help="kroki całkowania (8 = szybciej)")
     p.add_argument("--tempo", type=float, default=1.0, help="> 1 szybciej, < 1 wolniej")
     p.add_argument("--ziarno", type=int, default=0, help="ziarno losowania (-1 = losowo)")
-    p.add_argument("--liczby", action="store_true", help="liczby na słowa z odmianą (pip install 'mikolai[liczby]')")
     p.add_argument("--device", default=None, help="cpu / cuda (domyślnie cuda, jeśli jest)")
     p.add_argument("--watki", type=int, default=None, help="liczba wątków CPU")
     a = p.parse_args()
@@ -32,7 +31,7 @@ def main() -> None:
     tts = MikolAI.from_pretrained(a.repo or DOMYSLNE_REPO, device=a.device)
     t0 = time.time()
     tts.zapisz(tekst, a.wyjscie, cfg=a.cfg, kroki=a.kroki, tempo=a.tempo,
-               ziarno=None if a.ziarno < 0 else a.ziarno, liczby=a.liczby)
+               ziarno=None if a.ziarno < 0 else a.ziarno)
     import soundfile as sf
     dl = sf.info(a.wyjscie).duration
     print(f"{a.wyjscie}: {dl:.1f} s audio w {time.time() - t0:.1f} s (RTF {(time.time() - t0) / max(dl, 1e-6):.2f})")

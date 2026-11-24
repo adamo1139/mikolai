@@ -112,17 +112,13 @@ class MikolAI:
         return wav[porcja:-porcja]   # jak w próbkach treningu: bez pierwszej i ostatniej porcji
 
     def synteza(self, tekst: str, glos: str = "poziomka", cfg: float = 4.0, kroki: int = 16, tempo: float = 1.0,
-                ziarno: int | None = 0, liczby: bool = False, przerwa: float = 0.25) -> np.ndarray:
+                ziarno: int | None = 0, przerwa: float = 0.25) -> np.ndarray:
         """Tekst -> dźwięk 48 kHz, float32 w [-1, 1]. Długi tekst jest dzielony na zdania.
 
         cfg: siła prowadzenia (1 = bez CFG, dwa razy szybciej); kroki: kroki całkowania (16 domyślnie, 8 szybciej);
-        tempo: > 1 szybciej; ziarno: powtarzalny wynik (None = losowo); liczby: zamiana liczb na słowa
-        (wymaga `pip install mikolai[liczby]`); przerwa: cisza między kawałkami w sekundach."""
+        tempo: > 1 szybciej; ziarno: powtarzalny wynik (None = losowo); przerwa: cisza między kawałkami w sekundach."""
         if glos not in self.glosy:
             raise ValueError(f"nieznany głos {glos!r}; dostępne: {', '.join(self.glosy)}")
-        if liczby:
-            from .liczby import normalizuj
-            tekst = normalizuj(tekst)[0]
         gen = torch.Generator(device=self.device)
         if ziarno is not None:
             gen.manual_seed(ziarno)

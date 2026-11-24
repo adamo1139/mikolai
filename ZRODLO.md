@@ -11,7 +11,6 @@ które z kolei pochodzą z dwóch projektów na licencji MIT (pliki `LICENSE-Blu
 | `modele/uncond.py` | klasa `UncondParams` z `trening/training/t2l/cfg_utils.py` ← BlueTTS |
 | `modele/latent_decoder.py`, `modele/modules.py` | `trening/bluecodec/autoencoder/` ← [blue-codec](https://github.com/maxmelichov/blue-codec) (z naszymi zmianami: moduł poprawki STFT, przednia sieć, aktywacja okresowa) |
 | `slownik.py` | `trening/training/data/text_vocab.py` (słownik znaków, nasz) |
-| `liczby.py` | `liczby/normalizuj.py` (zamiana liczb na słowa, nasz) |
 
 Zmiany przy kopiowaniu: tylko importy (moduły względne), usunięte komunikaty przy imporcie i ładowanie
 dekodera Supertonic-3 (nieużywane). `budowa.py` i `tts.py` są napisane od nowa, ale liczą to samo co

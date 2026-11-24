@@ -17,9 +17,6 @@ dependencies = [
     "huggingface_hub",
 ]
 
-[project.optional-dependencies]
-liczby = ["morfeusz2"]
-
 [project.scripts]
 mikolai = "mikolai.cli:main"
 
