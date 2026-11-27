@@ -171,6 +171,13 @@ class MikolAI:
             T = int((sek.item() * self.sample_rate + porcja - 1) // porcja)
             n = min(T, (int((sek * self.sample_rate).long()) + porcja - 1) // porcja)
             out.append({"ids": ids, "T": T, "n": n, "szum": torch.randn(1, C, T, device=self.device, generator=gen)[0]})
+        limit = self.te.context_chars
+        if limit and len(kawalki) > 1:
+            raw = [text_to_indices(normalize_text(t)) for t in kawalki]
+            for i, e in enumerate(out):
+                left = raw[i - 1][-limit:] if i else []
+                right = raw[i + 1][:limit] if i + 1 < len(out) else []
+                e["window"] = (e["ids"].new_tensor(left), e["ids"], e["ids"].new_tensor(right))
         return out
 
     @torch.no_grad()
@@ -191,7 +198,9 @@ class MikolAI:
             maska[b, 0, : e["n"]] = 1
             x[b, :, : e["T"]] = e["szum"]
         x = x * maska
-        h = self.te(ids, styl, text_mask=maska_t)
+        from .modele.text_encoder import pack_context
+        context = pack_context([e["window"] for e in el]) if "window" in el[0] else None
+        h = self.te(ids, styl, text_mask=maska_t, context=context)
         u = self.uncond
         u_key = getattr(u, "u_key", None)
         for i in range(kroki):
@@ -219,8 +228,9 @@ class MikolAI:
         from .modele.latent_decoder import VocoderHead
         dek = self.dekoder
         porcja = self.hop * self.ccf
+        samples = slice(None) if self.te.context_chars else slice(porcja, -porcja)
         if not isinstance(dek.head, VocoderHead):   # inna głowica (np. istft) nie jest przyczynowa: po kolei
-            return [dek(z).reshape(-1)[porcja:-porcja] for z in zs]
+            return [dek(z).reshape(-1)[samples] for z in zs]
         B, L = len(zs), max(z.shape[-1] for z in zs)
         x = torch.zeros(B, zs[0].shape[1], L, device=self.device)
         for b, z in enumerate(zs):
@@ -235,7 +245,7 @@ class MikolAI:
         wav = dek.head(x)                                        # [B, L · hop]
         dl = [z.shape[-1] * self.hop for z in zs]
         if dek.postnet is None:
-            return [wav[b, : dl[b]][porcja:-porcja] for b in range(B)]
+            return [wav[b, : dl[b]][samples] for b in range(B)]
         pn = dek.postnet
         X, wejscia, F_ = [], [], []
         for b in range(B):
@@ -265,7 +275,7 @@ class MikolAI:
             modul = m.abs()
             m = m * (modul.clamp(max=pn.max_mask) / modul.clamp_min(1e-8))
             y = torch.istft(X[b] * m, pn.n_fft, pn.hop, window=pn.window, center=True, length=dl[b])
-            out.append(y.reshape(-1)[porcja:-porcja])
+            out.append(y.reshape(-1)[samples])
         return out
 
     def synteza(self, tekst: str, glos: str = "poziomka", cfg: float = 4.0, kroki: int = 16, tempo: float = 1.0,
@@ -275,7 +285,7 @@ class MikolAI:
 
         cfg: siła prowadzenia (1 = bez CFG, dwa razy szybciej); kroki: kroki całkowania (16 domyślnie, 8 szybciej);
         tempo: > 1 szybciej; ziarno: powtarzalny wynik (None = losowo);
-        przerwy: cisza po kawałku w s, np. {"przecinek": 0.08, "zdanie": 0.18, "akapit": 0.28} (domyślnie PRZERWY);
+        przerwy: cisza po kawałku w s, np. {"przecinek": 0.08, "zdanie": 0.18, "akapit": 0.28} (model kontekstowy domyślnie zachowuje pauzy z syntezy);
         partia: ile kawałków liczyć naraz (1–8192, domyślnie 64; mniej, jeśli tekst ma mniej kawałków; 1 = po kolei);
         max_znakow: najdłuższy kawałek tekstu (zdania są sklejane do tej długości; model uczył się na wypowiedziach do ok. 30 s).
         Kawałki są liczone w kolejności od najkrótszego (mniej dopełniania), a sklejane w kolejności tekstu."""
@@ -300,7 +310,11 @@ class MikolAI:
             grupa = kolejnosc[i : i + partia]
             for k, w in zip(grupa, self._dekoduj(self._plyn([el[k] for k in grupa], glos, cfg, kroki))):
                 nagrania[k] = w
-        audio = sklej(nagrania, [k for _, k in podzial], self.sample_rate, przerwy)
+        if self.te.context_chars and przerwy is None:
+            # Aligned training targets own the inter-sentence pauses.
+            audio = torch.cat(nagrania)
+        else:
+            audio = sklej(nagrania, [k for _, k in podzial], self.sample_rate, przerwy)
         return audio.clamp(-1, 1).float().cpu().numpy()
 
     def zapisz(self, tekst: str, sciezka: str, kbps: int = 64, **kw) -> str:

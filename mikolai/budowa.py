@@ -40,6 +40,7 @@ def zbuduj(cfg: dict):
         layer_scale_init=layer_scale_init,
         edge_fill=edge_fill,
         spte_key_mode=key_mode,
+        context_chars=te_cfg.get("context_chars", 0),
         attn_xsa=bool(te_cfg["attn_encoder"].get("xsa", False)),
     )
 
