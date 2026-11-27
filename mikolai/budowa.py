@@ -41,6 +41,8 @@ def zbuduj(cfg: dict):
         edge_fill=edge_fill,
         spte_key_mode=key_mode,
         context_chars=te_cfg.get("context_chars", 0),
+        history_frames=te_cfg.get("history_frames", 0),
+        latent_channels=ttl["latent_dim"] * ttl["chunk_compress_factor"],
         attn_xsa=bool(te_cfg["attn_encoder"].get("xsa", False)),
     )
 

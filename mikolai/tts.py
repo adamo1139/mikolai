@@ -181,7 +181,7 @@ class MikolAI:
         return out
 
     @torch.no_grad()
-    def _plyn(self, el: list[dict], glos: str, cfg_scale: float, kroki: int) -> list[torch.Tensor]:
+    def _plyn(self, el: list[dict], glos: str, cfg_scale: float, kroki: int, history=None) -> list[torch.Tensor]:
         """Całkowanie przepływu dla partii kawałków (tekst i latenty dopełnione do najdłuższego, maski jak w treningu).
         Zwraca latenty dekodera [1, latent_dim, T · ccf] każdego kawałka (już odnormowane i rozpakowane)."""
         g = self.glosy[glos]
@@ -200,7 +200,7 @@ class MikolAI:
         x = x * maska
         from .modele.text_encoder import pack_context
         context = pack_context([e["window"] for e in el]) if "window" in el[0] else None
-        h = self.te(ids, styl, text_mask=maska_t, context=context)
+        h = self.te(ids, styl, text_mask=maska_t, context=context, history=history)
         u = self.uncond
         u_key = getattr(u, "u_key", None)
         for i in range(kroki):
@@ -213,6 +213,10 @@ class MikolAI:
                              style_keys=u_key.expand(B, -1, -1) if u_key is not None else None)
                 v = v0 + cfg_scale * (v - v0)
             x = (x + v * maska / kroki) * maska
+        if self.te.history_frames:
+            for b, e in enumerate(el):
+                tail = x[b:b+1, :, :e["n"]][:, :, -self.te.history_frames:]
+                e["next_history"] = torch.nn.functional.pad(tail, (self.te.history_frames - tail.size(2), 0))
         z = (x / self.scale if self.scale not in (0.0, 1.0) else x) * self.std + self.mean
         return [z[b : b + 1, :, : e["T"]].reshape(1, self.latent_dim, self.ccf, e["T"]).permute(0, 1, 3, 2).flatten(2, 3)
                 for b, e in enumerate(el)]
@@ -288,7 +292,7 @@ class MikolAI:
         przerwy: cisza po kawałku w s, np. {"przecinek": 0.08, "zdanie": 0.18, "akapit": 0.28} (model kontekstowy domyślnie zachowuje pauzy z syntezy);
         partia: ile kawałków liczyć naraz (1–8192, domyślnie 64; mniej, jeśli tekst ma mniej kawałków; 1 = po kolei);
         max_znakow: najdłuższy kawałek tekstu (zdania są sklejane do tej długości; model uczył się na wypowiedziach do ok. 30 s).
-        Kawałki są liczone w kolejności od najkrótszego (mniej dopełniania), a sklejane w kolejności tekstu."""
+        Model z historią audio generuje po jednym kawałku w kolejności tekstu. Pozostałe modele grupują kawałki według długości."""
         if glos not in self.glosy:
             raise ValueError(f"nieznany głos {glos!r}; dostępne: {', '.join(self.glosy)}")
         if not 1 <= int(partia) <= MAKS_PARTIA:
@@ -306,9 +310,16 @@ class MikolAI:
         el = self._przygotuj(kawalki, glos, tempo, gen)
         kolejnosc = sorted(range(len(el)), key=lambda i: el[i]["T"])
         nagrania: list[torch.Tensor | None] = [None] * len(el)
+        if self.te.history_frames:
+            kolejnosc = range(len(el))
+            partia = 1
+        history = None
         for i in range(0, len(kolejnosc), partia):
             grupa = kolejnosc[i : i + partia]
-            for k, w in zip(grupa, self._dekoduj(self._plyn([el[k] for k in grupa], glos, cfg, kroki))):
+            zs = self._plyn([el[k] for k in grupa], glos, cfg, kroki, history=history)
+            if self.te.history_frames:
+                history = el[grupa[0]].pop("next_history")
+            for k, w in zip(grupa, self._dekoduj(zs)):
                 nagrania[k] = w
         if self.te.context_chars and przerwy is None:
             # Aligned training targets own the inter-sentence pauses.
